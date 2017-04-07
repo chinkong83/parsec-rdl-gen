@@ -62,7 +62,8 @@ func main() {
 	generateAnnotations, err:= strconv.ParseBool(*generateAnnotationsString)
 	checkErr(err)
 
-	data, err := ioutil.ReadAll(os.Stdin)
+	//data, err := ioutil.ReadAll(os.Stdin)
+	data, err := ioutil.ReadFile("cobrandTest.json")
 	banner := "parsec-rdl-gen (development version)"
 	if Version != "" {
 		banner = fmt.Sprintf("parsec-rdl-gen %s %s", Version, BuildDate)
@@ -96,7 +97,24 @@ func GenerateJavaModel(banner string, schema *rdl.Schema, outdir string, genAnno
 	validationGroups = make(map[string]struct{}, 0)
 	registry := rdl.NewTypeRegistry(schema)
 	for _, t := range schema.Types {
-		err := generateJavaType(banner, schema, registry, packageDir, t, genAnnotations, namespace)
+		tName, _, _ := rdl.TypeInfo(t)
+		bt := registry.BaseType(t)
+		switch bt {
+		case rdl.BaseTypeStruct:
+		case rdl.BaseTypeEnum:
+		default:
+			fmt.Fprintf(os.Stderr, "[Ignoring type %s]\n", tName)
+			continue
+		}
+		cName := utils.Capitalize(string(tName))
+		out, file, _, err := utils.OutputWriter(packageDir, cName, ".java")
+		if err != nil {
+			return err
+		}
+		err = generateJavaType(banner, schema, registry, t, genAnnotations, namespace, out)
+		if file != nil {
+			file.Close()
+		}
 		if err != nil {
 			return err
 		}
@@ -105,28 +123,13 @@ func GenerateJavaModel(banner string, schema *rdl.Schema, outdir string, genAnno
 	return nil
 }
 
-func generateJavaType(banner string, schema *rdl.Schema, registry rdl.TypeRegistry, outdir string, t *rdl.Type, genAnnotations bool, namespace string) error {
+func generateJavaType(banner string, schema *rdl.Schema, registry rdl.TypeRegistry, t *rdl.Type,
+                      genAnnotations bool, namespace string, out *bufio.Writer) error {
 	tName, _, _ := rdl.TypeInfo(t)
-	bt := registry.BaseType(t)
-	switch bt {
-	case rdl.BaseTypeStruct:
-	//case rdl.BaseTypeUnion:
-	//case rdl.BaseTypeArray: //? a list subtype, to avoid generics and erasure?
-	case rdl.BaseTypeEnum:
-	default:
-		fmt.Fprintf(os.Stderr, "[Ignoring type %s]\n", tName)
-		return nil
-	}
 	cName := utils.Capitalize(string(tName))
-	out, file, _, err := utils.OutputWriter(outdir, cName, ".java")
-	if err != nil {
-		return err
-	}
-	if file != nil {
-		defer file.Close()
-	}
 	gen := &javaModelGenerator{registry, schema, string(tName), out, nil, nil, nil, nil}
 	gen.generateHeader(banner, namespace)
+	bt := registry.BaseType(t)
 	switch bt {
 	case rdl.BaseTypeStruct:
 		gen.appendToBody("\n")
